@@ -337,6 +337,12 @@
       </select>
       <input type="text" x-model="assetForm.asset_name" placeholder="Nama aset" class="input">
       <input type="text" x-model="assetForm.institution" placeholder="Bank / platform" class="input">
+      <select x-model="assetForm.source_account_id" class="input">
+        <option value="">— akun sumber dana (dari) —</option>
+        <template x-for="a in activeAccounts()" :key="a.account_id">
+          <option :value="a.account_id" x-text="a.account_name"></option>
+        </template>
+      </select>
       <select x-model="assetForm.linked_account_id" class="input">
         <option value="">— akun penampung —</option>
         <template x-for="a in activeAccounts()" :key="a.account_id">

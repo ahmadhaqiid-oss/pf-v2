@@ -130,6 +130,7 @@ function freshAsset_() {
     asset_class: 'DEPOSITO',
     asset_name: '',
     institution: '',
+    source_account_id: '',
     linked_account_id: '',
     payout_account_id: '',
     principal_amount: '',
@@ -441,12 +442,18 @@ function app() {
       this.modal = 'asset';
     },
 
+    /**
+     * Membuka deposito/aset baru: mencatat TRANSFER dari akun sumber ke akun penampung
+     * sekaligus membuat baris ASSETS_PORTFOLIO (lewat record_tx dengan new_asset).
+     */
     async submitAsset() {
       const f = this.assetForm;
       const pokok = toNumber_(f.principal_amount);
       if (!(pokok > 0)) return this.msg('Pokok harus lebih dari 0.', 'error');
       if (!f.asset_name.trim()) return this.msg('Nama aset wajib diisi.', 'error');
+      if (!f.source_account_id) return this.msg('Pilih akun sumber dana.', 'error');
       if (!f.linked_account_id || !f.payout_account_id) return this.msg('Pilih akun penampung dan akun pencairan.', 'error');
+      if (f.source_account_id === f.linked_account_id) return this.msg('Akun sumber dan akun penampung harus berbeda.', 'error');
 
       const pajakDefault = f.asset_class === 'DEPOSITO' ? 20 : (f.asset_class === 'SBN' ? 10 : 0);
       const bunga = toNumber_(f.yield_pct);
@@ -471,8 +478,20 @@ function app() {
 
       this.loading = true;
       try {
-        await apiUpsertMaster('assets', '', data);
-        this.msg('Aset tersimpan.');
+        await apiRecordTx({
+          request_id: pfUuid(),
+          tx_date: data.start_date,
+          tx_time: nowHms(),
+          tx_type: 'TRANSFER',
+          amount: pokok,
+          category_id: '',
+          from_account_id: f.source_account_id,
+          to_account_id: f.linked_account_id,
+          notes: 'Buka ' + data.asset_name,
+          source: 'WEB_APP',
+          new_asset: data
+        });
+        this.msg('Aset dibuka dan dana sudah dipindahkan.');
         this.closeModal();
         await this.loadBootstrap(true);
       } catch (e) {
