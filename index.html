@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0f172a">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>Personal Finance v2</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💰</text></svg>">
+<link rel="stylesheet" href="01_style.css">
+<script src="https://cdn.tailwindcss.com"></script>
+<script>tailwind.config = { darkMode: 'class' };</script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.js" defer></script>
+<script src="02_config.js" defer></script>
+<script src="03_api.js" defer></script>
+<script src="04_charts.js" defer></script>
+<script src="05_app.js" defer></script>
+<script src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.1/dist/cdn.min.js" defer></script>
+</head>
+<body class="min-h-screen bg-slate-100 text-slate-800 dark:bg-slate-950 dark:text-slate-100 pb-24" x-data="app()" x-init="init()">
+
+<!-- Notifikasi -->
+<div x-show="toast.show" x-transition style="display:none"
+     class="fixed top-3 left-1/2 -translate-x-1/2 z-50 max-w-[90%] px-4 py-2 rounded-xl shadow-lg text-sm text-white"
+     :class="toast.type === 'error' ? 'bg-rose-600' : 'bg-emerald-600'" x-text="toast.text"></div>
+
+<!-- Indikator loading -->
+<div x-show="loading" style="display:none" class="fixed inset-x-0 top-0 h-1 bg-indigo-500 animate-pulse z-50"></div>
+
+<!-- ========== SETUP KONEKSI ========== -->
+<section x-show="showSetup()" style="display:none" class="max-w-md mx-auto p-4 mt-6 space-y-4">
+  <h1 class="text-2xl font-bold">Setup Koneksi</h1>
+  <p class="text-sm text-slate-500 dark:text-slate-400">Data koneksi hanya disimpan di perangkat ini.</p>
+  <label class="block text-sm font-medium">URL Web App (berakhiran /exec)</label>
+  <input type="url" x-model="setupForm.url" class="input" placeholder="https://script.google.com/macros/s/.../exec">
+  <label class="block text-sm font-medium">API Key</label>
+  <input type="password" x-model="setupForm.key" class="input">
+  <button class="btn-primary w-full" :disabled="loading" @click="saveSetup()">Simpan & Uji Koneksi</button>
+
+  <details class="card">
+    <summary class="font-medium cursor-pointer">Import / Export konfigurasi</summary>
+    <textarea x-model="configText" rows="4" class="input mt-2 font-mono text-xs" placeholder="Tempel JSON konfigurasi di sini"></textarea>
+    <div class="grid grid-cols-2 gap-2 mt-2">
+      <button class="btn-ghost" @click="exportConfig()">Export</button>
+      <button class="btn-ghost" @click="importConfig()">Import</button>
+    </div>
+  </details>
+</section>
+
+<!-- ========== APLIKASI UTAMA ========== -->
+<main x-show="!showSetup()" style="display:none" class="max-w-5xl mx-auto p-3 md:p-6">
+
+  <header class="flex items-center justify-between mb-4">
+    <div>
+      <h1 class="text-xl font-bold">Personal Finance</h1>
+      <p class="text-xs text-slate-500 dark:text-slate-400" x-text="'Periode ' + (data?.summary?.period || '-') + ' · Sinkron ' + syncedAt"></p>
+    </div>
+    <div class="flex gap-2">
+      <button class="icon-btn" title="Tema" @click="toggleTheme()">🌓</button>
+      <button class="icon-btn" title="Sinkron" @click="loadBootstrap()">🔄</button>
+      <button class="icon-btn" title="Pengaturan" @click="view = 'setup'">⚙️</button>
+    </div>
+  </header>
+
+  <!-- BERANDA -->
+  <section x-show="view === 'dashboard'" class="space-y-4">
+    <div class="grid grid-cols-2 md:grid-cols-3 gap-3">
+      <div class="card col-span-2 md:col-span-1 bg-gradient-to-br from-indigo-600 to-violet-600 text-white">
+        <p class="text-xs opacity-80">Net Worth</p>
+        <p class="text-2xl font-bold" x-text="rp(data?.summary?.net_worth)"></p>
+      </div>
+      <div class="card"><p class="stat-label">Aset Likuid</p><p class="stat-val" x-text="rp(data?.summary?.total_likuid)"></p></div>
+      <div class="card"><p class="stat-label">Investasi</p><p class="stat-val" x-text="rp(data?.summary?.total_investasi)"></p></div>
+      <div class="card"><p class="stat-label">Piutang</p><p class="stat-val" x-text="rp(data?.summary?.total_piutang)"></p></div>
+      <div class="card"><p class="stat-label">Sisa Kewajiban</p><p class="stat-val text-rose-500" x-text="rp(data?.summary?.total_kewajiban)"></p></div>
+    </div>
+
+    <div class="card">
+      <h2 class="section-title">Arus Kas Bulan Ini</h2>
+      <div class="grid grid-cols-3 gap-2 text-center">
+        <div><p class="stat-label">Masuk</p><p class="font-semibold text-emerald-600" x-text="rp(data?.summary?.arus_kas?.income)"></p></div>
+        <div><p class="stat-label">Keluar</p><p class="font-semibold text-rose-500" x-text="rp(data?.summary?.arus_kas?.expense)"></p></div>
+        <div><p class="stat-label">Tabungan</p><p class="font-semibold" x-text="rp(data?.summary?.arus_kas?.net_savings)"></p></div>
+      </div>
+      <p class="text-sm mt-2 text-slate-500 dark:text-slate-400">Savings rate: <span x-text="pct(data?.summary?.arus_kas?.savings_rate)"></span></p>
+    </div>
+
+    <div class="card">
+      <h2 class="section-title">Target Tabungan</h2>
+      <template x-for="g in goals()" :key="g.item_id">
+        <div class="mb-3">
+          <div class="flex justify-between text-sm"><span x-text="g.name"></span><span x-text="pct(g.progress)"></span></div>
+          <div class="h-2 bg-slate-200 dark:bg-slate-800 rounded">
+            <div class="h-2 bg-indigo-500 rounded" :style="'width:' + (g.progress * 100) + '%'"></div>
+          </div>
+          <p class="text-xs text-slate-500 dark:text-slate-400 mt-1" x-text="rp(g.collected) + ' dari ' + rp(g.target_amount)"></p>
+        </div>
+      </template>
+    </div>
+
+    <div class="card">
+      <h2 class="section-title">Transaksi Terbaru</h2>
+      <template x-for="t in data?.recent_transactions || []" :key="t.tx_id">
+        <div class="tx-row">
+          <div class="min-w-0">
+            <p class="text-sm font-medium truncate"><span x-text="t.icon"></span> <span x-text="t.category_name || txLabel(t)"></span></p>
+            <p class="text-xs text-slate-500 dark:text-slate-400 truncate" x-text="fmtTgl(t.tx_date) + ' · ' + (t.notes || '')"></p>
+          </div>
+          <p class="text-sm font-semibold whitespace-nowrap" :class="txClass(t)" x-text="txSign(t) + rp(t.amount)"></p>
+        </div>
+      </template>
+    </div>
+  </section>
+
+  <!-- AKUN -->
+  <section x-show="view === 'akun'" style="display:none" class="space-y-4">
+    <div class="flex items-center justify-between">
+      <h2 class="section-title">Dompet & Rekening</h2>
+      <label class="text-sm flex items-center gap-2"><input type="checkbox" x-model="showArchived"> Tampilkan diarsipkan</label>
+    </div>
+
+    <template x-for="grp in accountGroups()" :key="grp.name">
+      <div class="card">
+        <h3 class="text-xs font-semibold uppercase text-slate-500 dark:text-slate-400 mb-2" x-text="grp.name"></h3>
+        <template x-for="a in grp.items" :key="a.account_id">
+          <div class="flex justify-between py-2 border-b last:border-0 border-slate-200 dark:border-slate-800">
+            <div>
+              <p class="font-medium" x-text="a.account_name"></p>
+              <p class="text-xs text-slate-500 dark:text-slate-400" x-text="a.institution + (a.status === 'ARCHIVED' ? ' · diarsipkan' : '')"></p>
+            </div>
+            <p class="font-semibold" x-text="rp(a.balance)"></p>
+          </div>
+        </template>
+      </div>
+    </template>
+
+    <div class="card space-y-2">
+      <h2 class="section-title">Riwayat Transaksi</h2>
+      <div class="grid grid-cols-2 gap-2">
+        <input type="month" x-model="histFilter.month" class="input">
+        <input type="text" x-model="histFilter.q" placeholder="Cari catatan / kategori" class="input">
+      </div>
+      <button class="btn-ghost w-full" @click="loadHistory(true)">Terapkan Filter</button>
+      <div x-show="history.items" style="display:none" class="space-y-1">
+        <p class="text-xs text-slate-500 dark:text-slate-400" x-text="'Masuk ' + rp(history.summary?.income) + ' · Keluar ' + rp(history.summary?.expense) + ' · ' + history.total + ' transaksi'"></p>
+        <template x-for="t in history.items || []" :key="t.tx_id">
+          <div class="tx-row">
+            <div class="min-w-0">
+              <p class="text-sm font-medium truncate"><span x-text="t.icon"></span> <span x-text="t.category_name || txLabel(t)"></span></p>
+              <p class="text-xs text-slate-500 dark:text-slate-400 truncate" x-text="fmtTgl(t.tx_date) + ' · ' + (t.notes || '')"></p>
+            </div>
+            <p class="text-sm font-semibold whitespace-nowrap" :class="txClass(t)" x-text="txSign(t) + rp(t.amount)"></p>
+          </div>
+        </template>
+        <button class="btn-ghost w-full mt-2" x-show="history.has_more" @click="loadHistory(false)">Muat lagi</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- PORTOFOLIO -->
+  <section x-show="view === 'portofolio'" style="display:none" class="space-y-4">
+    <div class="flex items-center justify-between">
+      <h2 class="section-title">Portofolio</h2>
+      <button class="btn-primary" @click="openAsset()">+ Aset / Deposito</button>
+    </div>
+    <template x-for="a in data?.assets || []" :key="a.asset_id">
+      <div class="card space-y-1">
+        <div class="flex justify-between">
+          <div>
+            <p class="font-semibold" x-text="a.asset_name"></p>
+            <p class="text-xs text-slate-500 dark:text-slate-400" x-text="a.asset_class + ' · ' + a.institution + ' · ' + a.status"></p>
+          </div>
+          <p class="font-semibold" x-text="rp(a.principal_amount)"></p>
+        </div>
+        <p class="text-sm" x-show="a.days_to_maturity !== null" x-text="'Jatuh tempo ' + a.maturity_date + ' (' + a.days_to_maturity + ' hari lagi)'"></p>
+        <p class="text-sm" x-show="a.estimated_net_monthly > 0" x-text="'Kupon bersih/bulan: ' + rp(a.estimated_net_monthly) + ' (tgl ' + a.payout_day + ')'"></p>
+        <p class="text-sm" x-show="a.estimated_net_total" x-text="'Estimasi bunga bersih: ' + rp(a.estimated_net_total)"></p>
+        <p class="text-xs text-slate-500 dark:text-slate-400" x-show="a.latest_valuation" x-text="'Nilai terakhir ' + rp(a.latest_valuation?.current_value) + ' per ' + a.latest_valuation?.val_date"></p>
+        <button class="btn-ghost w-full mt-2" @click="openValuation(a)">Catat Nilai Pasar</button>
+      </div>
+    </template>
+  </section>
+
+  <!-- ANALITIK -->
+  <section x-show="view === 'analitik'" style="display:none" class="space-y-4">
+    <div class="card">
+      <h2 class="section-title">Tren Arus Kas 12 Bulan</h2>
+      <canvas id="chartTrend" height="200"></canvas>
+    </div>
+    <div class="card">
+      <h2 class="section-title">Budget vs Realisasi</h2>
+      <canvas id="chartBudget" height="220"></canvas>
+      <p x-show="!(data?.budgets?.length)" class="text-sm text-slate-500 dark:text-slate-400">Belum ada anggaran untuk bulan ini.</p>
+    </div>
+    <div class="card">
+      <h2 class="section-title">Alokasi Aset (nilai pokok)</h2>
+      <canvas id="chartAlloc" height="220"></canvas>
+    </div>
+  </section>
+
+  <!-- MASTER DATA -->
+  <section x-show="view === 'master'" style="display:none" class="space-y-4">
+    <h2 class="section-title">Master Data</h2>
+    <div class="grid grid-cols-2 gap-2">
+      <button class="btn-ghost" @click="openMaster('accounts')">+ Akun / Bank</button>
+      <button class="btn-ghost" @click="openMaster('categories')">+ Kategori</button>
+      <button class="btn-ghost" @click="openMaster('parties')">+ Kontak Piutang</button>
+      <button class="btn-ghost" @click="openMaster('goals')">+ Target / Cicilan</button>
+      <button class="btn-ghost" @click="openMaster('budgets')">+ Anggaran</button>
+      <button class="btn-ghost" @click="openMaster('rules')">+ Aturan Berulang</button>
+    </div>
+
+    <div class="card">
+      <h3 class="font-semibold mb-2">Akun</h3>
+      <template x-for="a in data?.accounts || []" :key="a.account_id">
+        <div class="flex justify-between items-center py-2 border-b last:border-0 border-slate-200 dark:border-slate-800">
+          <div class="min-w-0">
+            <p class="font-medium truncate" x-text="a.account_name"></p>
+            <p class="text-xs text-slate-500 dark:text-slate-400" x-text="a.account_id + ' · ' + a.status"></p>
+          </div>
+          <button class="btn-ghost text-sm" @click="openMaster('accounts', a)">Ubah</button>
+        </div>
+      </template>
+    </div>
+
+    <div class="card">
+      <h3 class="font-semibold mb-2">Kategori</h3>
+      <template x-for="c in data?.categories || []" :key="c.category_id">
+        <div>
+          <div class="flex justify-between items-center py-2 border-b border-slate-200 dark:border-slate-800">
+            <p class="font-medium" x-text="c.icon + ' ' + c.category_name + ' (' + c.type + ')'"></p>
+            <button class="btn-ghost text-sm" @click="openMaster('categories', c)">Ubah</button>
+          </div>
+          <template x-for="s in c.children || []" :key="s.category_id">
+            <div class="flex justify-between items-center py-2 pl-6 border-b border-slate-200 dark:border-slate-800">
+              <p class="text-sm" x-text="'↳ ' + s.category_name"></p>
+              <button class="btn-ghost text-sm" @click="openMaster('categories', s)">Ubah</button>
+            </div>
+          </template>
+        </div>
+      </template>
+    </div>
+
+    <div class="card">
+      <h3 class="font-semibold mb-2">Kontak Piutang</h3>
+      <template x-for="p in data?.parties || []" :key="p.party_id">
+        <div class="flex justify-between items-center py-2 border-b last:border-0 border-slate-200 dark:border-slate-800">
+          <div>
+            <p class="font-medium" x-text="p.party_name"></p>
+            <p class="text-xs text-slate-500 dark:text-slate-400" x-text="'Piutang ' + rp(p.receivable) + ' · Utang ' + rp(p.payable)"></p>
+          </div>
+          <button class="btn-ghost text-sm" @click="openMaster('parties', p)">Ubah</button>
+        </div>
+      </template>
+    </div>
+  </section>
+</main>
+
+<!-- Tombol tambah transaksi -->
+<button x-show="!showSetup()" style="display:none" @click="openTx()"
+        class="fixed bottom-20 right-4 z-30 w-14 h-14 rounded-full bg-indigo-600 text-white text-3xl shadow-lg"
+        aria-label="Catat transaksi">+</button>
+
+<!-- Navigasi bawah -->
+<nav x-show="!showSetup()" style="display:none; padding-bottom: env(safe-area-inset-bottom)"
+     class="fixed bottom-0 inset-x-0 z-30 grid grid-cols-5 bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 text-xs">
+  <button class="nav-btn" :class="view === 'dashboard' && 'nav-on'" @click="go('dashboard')"><span>🏠</span>Beranda</button>
+  <button class="nav-btn" :class="view === 'akun' && 'nav-on'" @click="go('akun')"><span>👛</span>Akun</button>
+  <button class="nav-btn" :class="view === 'portofolio' && 'nav-on'" @click="go('portofolio')"><span>📈</span>Portofolio</button>
+  <button class="nav-btn" :class="view === 'analitik' && 'nav-on'" @click="go('analitik')"><span>📊</span>Analitik</button>
+  <button class="nav-btn" :class="view === 'master' && 'nav-on'" @click="go('master')"><span>🗂️</span>Master</button>
+</nav>
+
+<!-- ========== MODAL ========== -->
+<div x-show="modal" style="display:none" @click.self="closeModal()"
+     class="fixed inset-0 z-40 bg-black/50 flex items-end md:items-center justify-center md:p-4">
+  <div class="bg-white dark:bg-slate-900 w-full md:max-w-md rounded-t-2xl md:rounded-2xl p-4 max-h-[90vh] overflow-y-auto space-y-3">
+
+    <!-- Transaksi -->
+    <div x-show="modal === 'tx'" class="space-y-3">
+      <h2 class="section-title">Catat Transaksi</h2>
+      <div class="grid grid-cols-3 gap-2">
+        <template x-for="t in txTypes" :key="t.v">
+          <button class="chip" :class="txForm.tx_type === t.v && 'chip-on'" @click="setTxType(t.v)" x-text="t.l"></button>
+        </template>
+      </div>
+      <input type="number" inputmode="decimal" x-model="txForm.amount" placeholder="Nominal" class="input text-lg">
+      <div class="grid grid-cols-2 gap-2">
+        <input type="date" x-model="txForm.tx_date" class="input">
+        <input type="time" step="1" x-model="txForm.tx_time" class="input">
+      </div>
+      <select x-show="needsCategory()" x-model="txForm.category_id" class="input">
+        <option value="">— pilih —</option>
+        <template x-for="c in txCategoryOptions()" :key="c.id">
+          <option :value="c.id" x-text="c.label"></option>
+        </template>
+      </select>
+      <select x-show="needsFrom()" x-model="txForm.from_account_id" class="input">
+        <option value="">— dari akun —</option>
+        <template x-for="a in activeAccounts()" :key="a.account_id">
+          <option :value="a.account_id" x-text="a.account_name"></option>
+        </template>
+      </select>
+      <select x-show="needsTo()" x-model="txForm.to_account_id" class="input">
+        <option value="">— ke akun —</option>
+        <template x-for="a in activeAccounts()" :key="a.account_id">
+          <option :value="a.account_id" x-text="a.account_name"></option>
+        </template>
+      </select>
+      <input type="text" x-model="txForm.notes" placeholder="Catatan (opsional)" class="input">
+      <button class="btn-primary w-full" :disabled="loading" @click="submitTx()">Simpan</button>
+      <button class="btn-ghost w-full" @click="closeModal()">Batal</button>
+    </div>
+
+    <!-- Nilai pasar aset -->
+    <div x-show="modal === 'valuation'" class="space-y-3">
+      <h2 class="section-title" x-text="'Nilai Pasar: ' + valForm.asset_name"></h2>
+      <input type="date" x-model="valForm.val_date" class="input">
+      <input type="number" inputmode="decimal" x-model="valForm.current_value" placeholder="Nilai pasar total" class="input">
+      <input type="number" inputmode="decimal" x-model="valForm.yield_received" placeholder="Kupon/bunga/dividen diterima (opsional)" class="input">
+      <input type="text" x-model="valForm.notes" placeholder="Catatan (opsional)" class="input">
+      <button class="btn-primary w-full" :disabled="loading" @click="submitValuation()">Simpan Nilai</button>
+      <button class="btn-ghost w-full" @click="closeModal()">Batal</button>
+    </div>
+
+    <!-- Aset / deposito baru -->
+    <div x-show="modal === 'asset'" class="space-y-3">
+      <h2 class="section-title">Aset / Deposito Baru</h2>
+      <select x-model="assetForm.asset_class" class="input">
+        <option value="DEPOSITO">Deposito</option>
+        <option value="SBN">SBN</option>
+        <option value="MUTUAL_FUND">Reksa Dana</option>
+        <option value="STOCK">Saham</option>
+        <option value="BOND">Obligasi</option>
+        <option value="OTHER">Lainnya</option>
+      </select>
+      <input type="text" x-model="assetForm.asset_name" placeholder="Nama aset" class="input">
+      <input type="text" x-model="assetForm.institution" placeholder="Bank / platform" class="input">
+      <select x-model="assetForm.linked_account_id" class="input">
+        <option value="">— akun penampung —</option>
+        <template x-for="a in activeAccounts()" :key="a.account_id">
+          <option :value="a.account_id" x-text="a.account_name"></option>
+        </template>
+      </select>
+      <select x-model="assetForm.payout_account_id" class="input">
+        <option value="">— akun pencairan —</option>
+        <template x-for="a in activeAccounts()" :key="a.account_id">
+          <option :value="a.account_id" x-text="a.account_name"></option>
+        </template>
+      </select>
+      <input type="number" inputmode="decimal" x-model="assetForm.principal_amount" placeholder="Pokok" class="input">
+      <div class="grid grid-cols-2 gap-2">
+        <input type="number" inputmode="decimal" step="0.01" x-model="assetForm.yield_pct" placeholder="Bunga % / tahun" class="input">
+        <input type="number" inputmode="decimal" step="0.01" x-model="assetForm.tax_pct" placeholder="Pajak %" class="input">
+      </div>
+      <div class="grid grid-cols-2 gap-2">
+        <input type="date" x-model="assetForm.start_date" class="input">
+        <input type="date" x-model="assetForm.maturity_date" class="input">
+      </div>
+      <div class="grid grid-cols-2 gap-2">
+        <input type="number" x-model="assetForm.payout_day" placeholder="Tgl kupon (SBN)" class="input">
+        <label class="flex items-center gap-2 text-sm"><input type="checkbox" x-model="assetForm.auto_rollover"> Auto-rollover (ARO)</label>
+      </div>
+      <button class="btn-primary w-full" :disabled="loading" @click="submitAsset()">Simpan Aset</button>
+      <button class="btn-ghost w-full" @click="closeModal()">Batal</button>
+    </div>
+
+    <!-- Master data (generic) -->
+    <div x-show="modal === 'master'" class="space-y-3">
+      <h2 class="section-title" x-text="masterTitle()"></h2>
+      <template x-for="f in masterFields()" :key="f.key">
+        <div>
+          <label class="block text-sm font-medium mb-1" x-text="f.label"></label>
+          <select x-show="f.options" x-model="masterForm[f.key]" class="input">
+            <template x-for="o in f.options || []" :key="o">
+              <option :value="o" x-text="o"></option>
+            </template>
+          </select>
+          <input x-show="!f.options" :type="f.type || 'text'" x-model="masterForm[f.key]" :disabled="f.locked" class="input">
+        </div>
+      </template>
+      <button class="btn-primary w-full" :disabled="loading" @click="submitMaster()">Simpan</button>
+      <button class="btn-ghost w-full" @click="closeModal()">Batal</button>
+    </div>
+
+  </div>
+</div>
+
+</body>
+</html>

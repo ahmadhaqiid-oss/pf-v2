@@ -1,0 +1,19 @@
+{
+  "name": "Personal Finance v2",
+  "short_name": "PF v2",
+  "description": "Sistem keuangan pribadi modular, Google Sheets + Apps Script",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#f1f5f9",
+  "theme_color": "#0f172a",
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}
